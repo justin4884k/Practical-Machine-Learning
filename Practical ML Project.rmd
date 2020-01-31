@@ -1,0 +1,143 @@
+---
+title: "Practical Machine Learning Project"
+author: "Justin K Joshuva"
+output: html_document
+---
+# Prediction Assignment Writeup for Practical Machine Learning Project
+
+## I. Overview
+The main goal for this project is to predict the manner in which 6 participants perfromed some extercises. his is the “classe” variable in the training set. The machine learning algorithm described here is applied to the 20 test cases available in the test data. 
+
+## II. Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is found on this at http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. 
+## III. Loading Data and Analysis
+### a. Overview of the data
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+From the website of the dataset, a short description is given below:
+"“Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+### b. Preparing the environment
+```{r}
+# Libraries
+library(knitr)
+library(caret)
+library(rpart.plot)
+library(rpart)
+library(rattle)
+library(randomForest)
+library(corrplot)
+set.seed(1234)
+```
+### c. Load the data and clean
+```{r}
+trainfle <-  "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testfle <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(trainfle,"training.csv",method = "auto")
+download.file(testfle,"testing.csv",method = "auto")
+
+training <- read.csv("training.csv")
+testing <- read.csv("testing.csv")
+training_sub <- createDataPartition(training$classe,p=.7,list = FALSE)
+train <- training[training_sub,]
+test <- training[-training_sub,]
+
+dim(train)
+dim(test)
+```
+The training and testing set have 160 variables. These datasets contains NA's. By removing the NA's and Near Zero Variance, the dimensions of the data set can be reduced. The data set alo contains identifiable information like names and timestamps.
+```{r}
+NZV <- nearZeroVar(train)
+train <- train[,-NZV]
+test <- test[,-NZV]
+
+rmNA <- sapply(train, function(x) mean(is.na(x))) > 0.95
+train <- train[,rmNA==FALSE]
+test <- test[,rmNA==FALSE]
+
+train <- train[,-(1:5)]
+test <- test[,-(1:5)]
+
+dim(train)
+dim(test)
+
+```
+Cleaning the dataset for NZV, NA, identifiable information, and timestamps gives 54 variables.
+
+### d. Correlation Analysis
+```{r}
+corr <- cor(train[,-54])
+corrplot(corr, order = "FPC",method = "color",type = "lower" ,tl.cex=0.4,tl.col = rgb(0,0,0))
+```
+The highly correlated variables are shown in dark colors in the graph above.
+## IV. Prediction Models
+Three methods will be applied to model the regressions (in the train dataset) and the best one will be used for the quiz predictions. The Random Forest, Decision Tree and GBM model will be used as the models. A Confusion Matrix is plotted at the end of each analysis to better visualize the accuracy of the models.
+
+### a. Random Forest Method
+```{r}
+#fitting the model
+set.seed(1234)
+RF <- trainControl(method = "cv",number = 3,verboseIter = FALSE)
+RFModel <- train(classe~.,data=train,method="rf",trControl=RF)
+RFModel$finalModel
+
+#Prediction on the test
+RFPred <- predict(RFModel,newdata = test)
+RFConM <- confusionMatrix(RFPred,test$classe)
+RFConM
+
+#Plot
+plot(RFConM$table,col=RFConM$byClass,main=paste("Accuracy =",round(RFConM$overall['Accuracy'],4)))
+```
+### b. Decision Tree Method
+```{r}
+#fitting the model
+set.seed(1234)
+DT <- rpart(classe~.,data = train,method = "class")
+fancyRpartPlot(DT)
+# Confusion Matrix
+DTPred <- predict(DT,newdata = test,type = "class")
+DTConM <- confusionMatrix(DTPred,test$classe)
+DTConM
+#plot
+plot(DTConM$table,col=DTConM$byClass,,main=paste("Accuracy =",round(DTConM$overall['Accuracy'],4)))
+```
+### c. Generalized Boosted Model
+```{r}
+#fitting the model
+set.seed(1234)
+GBM <- trainControl(method = "repeatedcv",number = 5,repeats = 1)
+GBMModel <- train(classe~.,data=train,method="gbm",trControl=GBM,verbose =FALSE)
+GBMModel$finalModel
+# Confusion Matrix
+GBMPred <- predict(GBMModel,newdata = test)
+GBMConM <- confusionMatrix(GBMPred,test$classe)
+GBMConM
+#plot
+plot(GBMConM$table,col=GBMConM$byClass,,main=paste("Accuracy =",round(GBMConM$overall['Accuracy'],4)))
+```
+## V, Applying the models
+The accuracy of the 3 modeling methods above are:
+```{r}
+AccMat <- matrix(c(RFConM$overall['Accuracy'],DTConM$overall['Accuracy'],GBMConM$overall['Accuracy']),ncol = 3,byrow = TRUE)
+colnames(AccMat) <- c("Random Forest","Decision Tree","GBM")
+rownames(AccMat) <- "Accuracy"
+AccMat <- as.table(AccMat)
+AccMat
+```
+
+Since, Random Forest has the better accuracy, Random Forest will be used.
+```{r}
+TestPred <- predict(RFModel, newdata = testing)
+TestPred
+```
+
